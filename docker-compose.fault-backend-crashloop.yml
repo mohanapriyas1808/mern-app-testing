@@ -1,0 +1,20 @@
+version: '3.8'
+
+# Fault: Backend process crashes on startup due to missing required env variable
+# The app tries to parse a required config and throws, Node exits with code 1.
+# RCA signals:
+#   - docker logs show: "Error: REQUIRED_SECRET is not defined. Cannot start server."
+#   - container exit code 1, restart policy triggers rapid restart loop
+#   - docker ps shows: Restarting (1) X seconds ago
+#   - "back-off restarting failed container" in docker events
+#   - frontend gets 502 Bad Gateway on all /api/* requests
+#
+# How to run:
+#   docker compose -f docker-compose.yml -f docker-compose.fault-backend-crashloop.yml up --build
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.fault-crashloop
+    restart: always

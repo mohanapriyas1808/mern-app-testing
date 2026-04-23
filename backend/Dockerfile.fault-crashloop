@@ -1,0 +1,9 @@
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+EXPOSE 5000
+# --exit-on-unhandled-rejection makes Node exit (code 1) on any unhandled rejection
+# server.fault-crashloop.js throws during startup if a required env var is missing
+CMD ["node", "--exit-on-unhandled-rejection=throw", "server.fault-crashloop.js"]

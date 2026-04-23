@@ -1,0 +1,24 @@
+version: '3.8'
+
+# Fault: Backend container OOM-killed by the kernel
+# RCA signals:
+#   - docker inspect <container> -> "OOMKilled": true
+#   - docker events: container die, exitCode=137 (SIGKILL from OOM killer)
+#   - /var/log/syslog or dmesg (on host): "Out of memory: Kill process ... (node)"
+#   - docker stats: memory climbs steadily to the limit then container disappears
+#   - restart policy brings it back, memory climbs again -> repeated OOM cycle
+#   - frontend: intermittent 502s that clear briefly after each restart
+#
+# Trigger: POST /api/items  (each request leaks ~10 MB into a module-level array)
+#
+# How to run:
+#   docker compose -f docker-compose.yml -f docker-compose.fault-oom.yml up --build
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.fault-oom
+    mem_limit: 150m          # tight limit so the leak is observable within minutes
+    memswap_limit: 150m      # disable swap so OOM kill happens cleanly
+    restart: always

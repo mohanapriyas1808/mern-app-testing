@@ -1,0 +1,23 @@
+version: '3.8'
+
+# Fault: Backend listening on wrong port — nginx gets 502 Bad Gateway
+# RCA signals:
+#   - nginx logs: "connect() failed (111: Connection refused) while connecting to upstream"
+#   - nginx logs: upstream "http://backend:5000" unreachable
+#   - All /api/* requests from frontend return HTTP 502
+#   - Backend logs show server started successfully on port 5001 (no error on backend side)
+#   - docker ps shows both containers running and healthy — misleading green status
+#
+# Root cause pattern: PORT env var changed in one place but not the other,
+# or a Dockerfile EXPOSE / CMD mismatch after a port migration.
+#
+# How to run:
+#   docker compose -f docker-compose.yml -f docker-compose.fault-wrong-port.yml up --build
+
+services:
+  backend:
+    environment:
+      - PORT=5001                                        # backend binds to 5001
+      - MONGO_URI=mongodb://mongo:27017/mern-docker-deploy
+    # nginx.conf still proxies to backend:5000 → 502 on every API call
+    restart: always

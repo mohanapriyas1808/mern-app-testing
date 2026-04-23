@@ -1,0 +1,25 @@
+version: '3.8'
+
+# Fault: CPU spike / event loop starvation
+# RCA signals:
+#   - docker stats: CPU% pegged at or near the container's quota
+#   - GET /api/items requests time out or queue up (event loop is blocked)
+#   - Node.js does NOT crash — it just stops responding to other requests
+#   - Response times climb from ms to seconds; clients see ETIMEDOUT / 504
+#   - No error in logs — the process is alive but unresponsive
+#
+# Trigger: GET /api/slow  (simulates an unoptimised synchronous report/export
+#          endpoint — e.g. a naive JSON serialisation of a large dataset,
+#          a synchronous crypto operation, or a tight computation loop)
+#
+# How to run:
+#   docker compose -f docker-compose.yml -f docker-compose.fault-cpu-spike.yml up --build
+#   Then: curl http://localhost:5000/api/slow   (watch docker stats in another terminal)
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.fault-cpu-spike
+    cpus: '0.5'        # cap so the spike is visible without melting the host
+    restart: always

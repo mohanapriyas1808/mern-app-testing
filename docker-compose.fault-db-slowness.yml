@@ -1,0 +1,29 @@
+version: '3.8'
+
+# Fault: Database query timeouts due to missing index on a growing collection
+# RCA signals:
+#   - backend logs: MongooseError: Operation `items.find()` buffering timed out after 10000ms
+#   - Response times for GET /api/items climb as the collection grows
+#   - No crash — the process is alive, but requests hang then fail with 500
+#   - mongo logs show COLLSCAN (collection scan) instead of IXSCAN on slow queries
+#   - Pattern: fast at first, degrades over time as data grows (no index)
+#
+# Root cause pattern: collection was small during development so no index was
+# needed; in production the collection grew and queries started timing out.
+# The mongoose bufferTimeoutMS is set low to surface the symptom quickly.
+#
+# How to run:
+#   docker compose -f docker-compose.yml -f docker-compose.fault-db-slowness.yml up --build
+#   Seed data: for i in $(seq 1 200); do curl -s -X POST http://localhost:5000/api/items \
+#     -H 'Content-Type: application/json' -d "{\"name\":\"item$i\"}" > /dev/null; done
+#   Then watch GET /api/items slow down
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.fault-db-slowness
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/mern-docker-deploy
+      - PORT=5000
+    restart: always

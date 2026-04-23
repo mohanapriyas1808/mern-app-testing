@@ -1,0 +1,17 @@
+version: '3.8'
+
+# Fault: MongoDB unreachable
+# RCA signals:
+#   - backend logs: MongooseServerSelectionError: getaddrinfo ENOTFOUND mongo-broken
+#   - backend logs: connect ECONNREFUSED / connection timed out retries
+#   - backend container stays up but all /api/* calls return 500
+#   - frontend shows empty list, POST returns error
+#
+# How to run:
+#   docker compose -f docker-compose.yml -f docker-compose.fault-mongo-down.yml up --build
+
+services:
+  backend:
+    environment:
+      - MONGO_URI=mongodb://mongo-broken:27017/mern-docker-deploy
+    restart: on-failure

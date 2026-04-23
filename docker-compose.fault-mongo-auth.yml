@@ -1,0 +1,32 @@
+version: '3.8'
+
+# Fault: MongoDB requires authentication but backend has no credentials
+# RCA signals:
+#   - backend logs: MongoServerError: Command find requires authentication
+#   - backend logs: MongoServerError: Authentication failed
+#   - backend starts up and connects (handshake succeeds) but every query fails
+#   - All GET /api/items return 500 with { "error": "Command find requires authentication" }
+#   - POST /api/items also returns 500
+#   - mongo container itself is healthy; mongosh with credentials works fine
+#
+# Root cause pattern: MongoDB was secured after initial deployment but the
+# backend env vars were not updated with the new credentials.
+#
+# How to run:
+#   docker compose -f docker-compose.yml -f docker-compose.fault-mongo-auth.yml up --build
+
+services:
+  backend:
+    environment:
+      # No username/password in the URI — auth will be rejected by mongo
+      - MONGO_URI=mongodb://mongo:27017/mern-docker-deploy
+      - PORT=5000
+    restart: always
+
+  mongo:
+    image: mongo:6.0
+    environment:
+      # Root credentials set — mongo now requires auth for all operations
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: secret123
+    restart: always
