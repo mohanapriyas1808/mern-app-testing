@@ -1,0 +1,7 @@
+version: '3.8'
+
+
+services:
+  mongo:
+    image: mongo:99.0-nonexistent
+    restart: on-failure
