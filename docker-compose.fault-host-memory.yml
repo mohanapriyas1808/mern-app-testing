@@ -8,3 +8,16 @@ services:
     deploy:
       replicas: 2
     restart: always
+
+  load-gen:
+    image: alpine:3.18
+    command: >
+      sh -c "apk add --no-cache curl &&
+      while true; do
+        curl -s -X POST http://backend:5000/api/items
+          -H 'Content-Type: application/json'
+          -d '{\"name\":\"loadtest\"}' > /dev/null;
+        curl -s http://backend:5000/api/items > /dev/null;
+        sleep 0.1;
+      done"
+    restart: always
