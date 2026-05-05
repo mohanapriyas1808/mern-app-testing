@@ -1,0 +1,25 @@
+version: '3.8'
+
+
+# How to run:
+#   docker compose -f docker-compose.yml -f docker-compose.fault-host-memory.yml up --build
+#
+# Trigger the leak (run in a loop to generate traffic):
+#   for i in $(seq 1 200); do
+#     curl -s -X POST http://localhost:5000/api/items \
+#       -H 'Content-Type: application/json' \
+#       -d "{\"name\":\"item$i\"}" > /dev/null
+#     curl -s http://localhost:5000/api/items > /dev/null
+#   done
+#
+# Watch memory:
+#   watch -n1 'free -h && echo "---" && docker stats --no-stream'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.fault-host-memory
+    deploy:
+      replicas: 3
+    restart: always
