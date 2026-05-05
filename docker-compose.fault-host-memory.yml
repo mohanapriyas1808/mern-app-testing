@@ -4,6 +4,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.fault-host-memory
+    ports: !reset []
     deploy:
-      replicas: 3
+      replicas: 2
     restart: always
