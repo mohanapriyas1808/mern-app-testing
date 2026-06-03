@@ -1,0 +1,13 @@
+FROM node:18-alpine
+
+# Small disk space to accelerate the failure
+# In production this would be a real volume running out of space
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm install
+COPY . .
+
+EXPOSE 5000
+
+CMD ["node", "server.fault-disk-full.js"]
