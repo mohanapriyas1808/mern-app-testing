@@ -1,12 +1,16 @@
 FROM node:18-alpine
 
-# Small disk space to accelerate the failure
-# In production this would be a real volume running out of space
 WORKDIR /app
 
 COPY package*.json ./
 RUN npm install
 COPY . .
+
+# Pre-create the directories that will be bind-mounted as named volumes at runtime.
+# The named volumes in docker-compose are stored on the real host filesystem
+# (/var/lib/docker/volumes/), making their disk usage visible to node_exporter
+# and therefore observable by the HighDiskUtilization Prometheus alert.
+RUN mkdir -p /app/logs /app/temp
 
 EXPOSE 5000
 
