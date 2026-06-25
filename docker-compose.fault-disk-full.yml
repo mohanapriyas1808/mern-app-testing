@@ -1,40 +1,103 @@
 version: '3.8'
 
-# Fault: Disk space exhaustion due to unbounded log growth and temp file leaks
-# RCA signals:
-#   - backend logs: ENOSPC: no space left on device
-#   - docker inspect <backend> → filesystem usage at 100%
-#   - ls -lh /app/logs → audit.log growing continuously (100KB per request)
-#   - ls -lh /app/temp → hundreds of temp_*.dat files never deleted (5MB each)
-#   - df -h → container filesystem full
-#   - Application stops accepting writes (POST fails with 500)
-#   - Eventually cannot write any logs → complete lockup
+# ─────────────────────────────────────────────────────────────────────────────
+# Fault Scenario: Disk Pressure / Disk Full (HOST DISK — Prometheus visible)
 #
-# Root cause pattern: no log rotation strategy + temp files not cleaned up
-# Disk fills silently until a critical write fails (DB operation, log append)
+# How disk pressure is created:
+#   1. /app/logs and /app/temp are backed by NAMED DOCKER VOLUMES stored on
+#      the real host filesystem (default: /var/lib/docker/volumes/...).
+#      node_exporter reports this partition via node_filesystem_* metrics,
+#      so the HighDiskUtilization Prometheus alert WILL fire.
+#   2. Three concurrent fill patterns run inside the backend:
+#        a) Background gorge  – appends 10 MB to gorge.bin every 5 s with
+#                               zero HTTP traffic needed.
+#        b) Log flooding      – every HTTP request appends ~100 KB to audit.log
+#                               (no rotation).
+#        c) Temp file leaks   – every POST writes a 5 MB temp_*.dat that is
+#                               never deleted.
+#
+# Prometheus alert that fires:
+#   HighDiskUtilization — fires when the host partition holding
+#   /var/lib/docker/volumes crosses 50 % used for > 2 min.
+#   (fstype!~"tmpfs|..." filter passes because these are real ext4/xfs volumes)
+#
+# Observable RCA signals:
+#   node_exporter metrics          → node_filesystem_avail_bytes dropping
+#   Prometheus alert               → HighDiskUtilization FIRING
+#   df -h (on host)                → /var/lib/docker partition growing
+#   docker exec backend df -h /app/logs /app/temp  → usage inside container
+#   du -sh /app/logs/* /app/temp/* → pinpoints gorge.bin, audit.log, temp files
+#   backend logs                   → [GORGE]/[AUDIT]/[CRITICAL] ENOSPC messages
+#   GET http://localhost:5000/api/disk-status → JSON real-time breakdown
 #
 # How to run:
-#   docker compose -f docker-compose.yml -f docker-compose.fault-disk-full.yml up --build
-#   Send requests to fill disk:
-#     for i in $(seq 1 100); do
-#       curl -s -X POST http://localhost:5000/api/items \
-#         -H 'Content-Type: application/json' \
-#         -d "{\"name\":\"item$i\"}" > /dev/null
-#     done
-#   Watch disk usage:
-#     docker exec <backend-container> df -h
-#     docker exec <backend-container> du -sh /app/logs /app/temp
+#   docker compose -f docker-compose.yml -f docker-compose.fault-disk-full.yml up --build -d
+#
+# Accelerate disk fill with traffic (on top of background gorge):
+#   for i in $(seq 1 50); do
+#     curl -s -X POST http://localhost:5000/api/items \
+#       -H 'Content-Type: application/json' \
+#       -d "{\"name\":\"item$i\"}" > /dev/null
+#   done
+#
+# Monitor in real time:
+#   # Inside container
+#   watch -n 2 'docker exec $(docker ps -qf name=backend) df -h /app/logs /app/temp'
+#   # On host — what Prometheus sees
+#   watch -n 2 'df -h /var/lib/docker'
+#   # Diagnostic API
+#   curl -s http://localhost:5000/api/disk-status | python3 -m json.tool
+#
+# Cleanup (removes volumes — frees host disk):
+#   docker compose -f docker-compose.yml -f docker-compose.fault-disk-full.yml down -v
+# ─────────────────────────────────────────────────────────────────────────────
 
 services:
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: always
+
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile.fault-disk-full
+    ports:
+      - "5000:5000"
     environment:
       - MONGO_URI=mongodb://mongo:27017/mern-docker-deploy
       - PORT=5000
-    # Limit storage size to accelerate disk full condition
-    # Real scenario would be a persistent volume running out of space
-    storage_opt:
-      size: '500M'
+      # Controls the background gorge rate (MB written per interval)
+      - GORGE_CHUNK_MB=10
+      # Interval between gorge writes in milliseconds
+      - GORGE_INTERVAL_MS=5000
+    depends_on:
+      - mongo
+    # ── Key change: real named volumes on host filesystem ─────────────────────
+    # These are backed by /var/lib/docker/volumes/ on the host.
+    # node_exporter monitors the host partition, so filling these volumes
+    # increments node_filesystem_size_bytes / node_filesystem_avail_bytes
+    # and triggers the HighDiskUtilization Prometheus alert (> 50% for 2 min).
+    volumes:
+      - fault_disk_logs:/app/logs
+      - fault_disk_temp:/app/temp
+    restart: on-failure
+
+  mongo:
+    image: mongo:6.0
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
     restart: always
+
+volumes:
+  mongo_data:
+  # Named volumes for fault injection — stored on host filesystem so
+  # node_exporter can observe the disk usage growth
+  fault_disk_logs:
+  fault_disk_temp:
